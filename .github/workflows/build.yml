@@ -23,12 +23,33 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
-        with:
-          packages: 'platform-tools'
 
       - name: Install Android SDK
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "platform-tools" \
+                     "platforms;android-35" \
+                     "build-tools;35.0.0"
+
+      - name: Find Android Project
+        shell: bash
+        run: |
+          SETTINGS_FILE=$(find . \
+            -type f \
+            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
+            -not -path "*/.git/*" \
+            -not -path "*/.gradle/*" \
+            -print -quit)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "::error::Cannot find settings.gradle or settings.gradle.kts. Please upload the complete Android project."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          PROJECT_DIR=$(realpath "$PROJECT_DIR")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Android project found at: $PROJECT_DIR"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -36,10 +57,19 @@ jobs:
           gradle-version: '8.7'
 
       - name: Build APK
-        run: gradle assembleDebug
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Shing-Data-Monitor-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
