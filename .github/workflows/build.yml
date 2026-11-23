@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup JDK 17
@@ -20,6 +20,40 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+
+      - name: Find and Extract Project ZIP
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 3 -type f -iname "*.zip" -print -quit)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::Project ZIP file not found in repository."
+            exit 1
+          fi
+
+          echo "Found ZIP: $ZIP_FILE"
+
+          mkdir -p extracted
+          unzip -o "$ZIP_FILE" -d extracted
+
+          SETTINGS_FILE=$(find extracted \
+            -type f \
+            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
+            -print -quit)
+
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "::error::No Android Gradle project found inside ZIP."
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          PROJECT_DIR=$(realpath "$PROJECT_DIR")
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Project found at: $PROJECT_DIR"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
@@ -30,27 +64,6 @@ jobs:
                      "platforms;android-35" \
                      "build-tools;35.0.0"
 
-      - name: Find Android Project
-        shell: bash
-        run: |
-          SETTINGS_FILE=$(find . \
-            -type f \
-            \( -name "settings.gradle.kts" -o -name "settings.gradle" \) \
-            -not -path "*/.git/*" \
-            -not -path "*/.gradle/*" \
-            -print -quit)
-
-          if [ -z "$SETTINGS_FILE" ]; then
-            echo "::error::Cannot find settings.gradle or settings.gradle.kts. Please upload the complete Android project."
-            exit 1
-          fi
-
-          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
-          PROJECT_DIR=$(realpath "$PROJECT_DIR")
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project found at: $PROJECT_DIR"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -59,13 +72,7 @@ jobs:
       - name: Build APK
         run: |
           cd "$PROJECT_DIR"
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug
-          else
-            gradle assembleDebug
-          fi
+          gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
